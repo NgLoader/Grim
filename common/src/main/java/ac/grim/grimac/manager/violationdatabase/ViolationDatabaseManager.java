@@ -86,7 +86,7 @@ public class ViolationDatabaseManager implements StartableInitable, ReloadableIn
                     return;
                 }
 
-                LogUtil.info("Database configuration detected...");
+                LogUtil.info("Database configuration changes detected...");
                 // disconnect because config has changed
                 this.disconnect();
             }
