@@ -1,44 +1,30 @@
 package ac.grim.grimac.manager.violationdatabase.sqlite;
 
 import ac.grim.grimac.GrimAPI;
-import ac.grim.grimac.api.plugin.GrimPlugin;
-import ac.grim.grimac.manager.violationdatabase.DatabaseConstants;
-import ac.grim.grimac.manager.violationdatabase.DatabaseDialect;
-import ac.grim.grimac.manager.violationdatabase.DatabaseUtils;
-import ac.grim.grimac.manager.violationdatabase.Violation;
-import ac.grim.grimac.manager.violationdatabase.ViolationDatabase;
+import ac.grim.grimac.manager.violationdatabase.*;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.LogUtil;
-
 import com.github.retrooper.packetevents.PacketEvents;
-import org.jetbrains.annotations.NotNull;
+import com.zaxxer.hikari.HikariDataSource;
 
-import java.io.File;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-public class SQLiteViolationDatabase implements ViolationDatabase {
+public record SQLiteViolationDatabase(HikariDataSource dataSource) implements ViolationDatabase {
 
-    private final GrimPlugin plugin;
-    private Connection openConnection;
-    private final DatabaseDialect dialect;
-
-    public SQLiteViolationDatabase(@NotNull GrimPlugin plugin) {
-        this.plugin = plugin;
-        this.dialect = new SQLiteDialect();
-    }
+    private static final DatabaseDialect DIALECT = new SQLiteDialect();
 
     @Override
-    public void connect() throws SQLException {
-        try (Connection connection = getConnection()) {
+    public void prepare() throws SQLException {
+        try (Connection connection = this.dataSource.getConnection()) {
             try (Statement stmt = connection.createStatement()) {
                 stmt.execute("PRAGMA foreign_keys = ON;");
             }
 
-            String pkSyntax = dialect.getAutoIncrementPrimaryKeySyntax();
-            String uuidType = dialect.getUuidColumnType();
+            String pkSyntax = DIALECT.getAutoIncrementPrimaryKeySyntax();
+            String uuidType = DIALECT.getUuidColumnType();
 
             // 1. Create Lookup Table for Server Names
             connection.prepareStatement(
@@ -166,7 +152,7 @@ public class SQLiteViolationDatabase implements ViolationDatabase {
     // Update signature to match the 4 new string parameters
     public synchronized void logAlert(GrimPlayer player, String grimVersion, String verbose, String checkName, int vls) {
         try (
-                Connection connection = getConnection();
+                Connection connection = this.dataSource.getConnection();
                 PreparedStatement insertLog = connection.prepareStatement(
                         "INSERT INTO " + DatabaseConstants.VIOLATIONS_TABLE + " (" +
                                 DatabaseConstants.VIOLATIONS_SERVER_ID_COLUMN + ", " +
@@ -183,12 +169,12 @@ public class SQLiteViolationDatabase implements ViolationDatabase {
                 )
         ) {
             String serverName = GrimAPI.INSTANCE.getConfigManager().getConfig().getStringElse("history.server-name", "Prison");
-            long serverId = DatabaseUtils.getOrCreateId(connection, dialect, DatabaseConstants.SERVERS_TABLE, DatabaseConstants.SERVERS_STRING_COLUMN, serverName);
-            long checkNameId = DatabaseUtils.getOrCreateId(connection, dialect, DatabaseConstants.CHECK_NAMES_TABLE, DatabaseConstants.CHECK_NAMES_STRING_COLUMN, checkName);
-            long grimVersionId = DatabaseUtils.getOrCreateId(connection, dialect, DatabaseConstants.GRIM_VERSIONS_TABLE, DatabaseConstants.GRIM_VERSIONS_STRING_COLUMN, grimVersion);
-            long clientBrandId = DatabaseUtils.getOrCreateId(connection, dialect, DatabaseConstants.CLIENT_BRANDS_TABLE, DatabaseConstants.CLIENT_BRANDS_STRING_COLUMN, player.getBrand());
-            long clientVersionId = DatabaseUtils.getOrCreateId(connection, dialect, DatabaseConstants.CLIENT_VERSIONS_TABLE, DatabaseConstants.CLIENT_VERSIONS_STRING_COLUMN, player.getClientVersion().getReleaseName());
-            long serverVersionId = DatabaseUtils.getOrCreateId(connection, dialect, DatabaseConstants.SERVER_VERSIONS_TABLE, DatabaseConstants.SERVER_VERSIONS_STRING_COLUMN, PacketEvents.getAPI().getServerManager().getVersion().toString());
+            long serverId = DatabaseUtils.getOrCreateId(connection, DIALECT, DatabaseConstants.SERVERS_TABLE, DatabaseConstants.SERVERS_STRING_COLUMN, serverName);
+            long checkNameId = DatabaseUtils.getOrCreateId(connection, DIALECT, DatabaseConstants.CHECK_NAMES_TABLE, DatabaseConstants.CHECK_NAMES_STRING_COLUMN, checkName);
+            long grimVersionId = DatabaseUtils.getOrCreateId(connection, DIALECT, DatabaseConstants.GRIM_VERSIONS_TABLE, DatabaseConstants.GRIM_VERSIONS_STRING_COLUMN, grimVersion);
+            long clientBrandId = DatabaseUtils.getOrCreateId(connection, DIALECT, DatabaseConstants.CLIENT_BRANDS_TABLE, DatabaseConstants.CLIENT_BRANDS_STRING_COLUMN, player.getBrand());
+            long clientVersionId = DatabaseUtils.getOrCreateId(connection, DIALECT, DatabaseConstants.CLIENT_VERSIONS_TABLE, DatabaseConstants.CLIENT_VERSIONS_STRING_COLUMN, player.getClientVersion().getReleaseName());
+            long serverVersionId = DatabaseUtils.getOrCreateId(connection, DIALECT, DatabaseConstants.SERVER_VERSIONS_TABLE, DatabaseConstants.SERVER_VERSIONS_STRING_COLUMN, PacketEvents.getAPI().getServerManager().getVersion().toString());
 
             // Set parameters
             insertLog.setLong(1, serverId);
@@ -210,7 +196,7 @@ public class SQLiteViolationDatabase implements ViolationDatabase {
 
     public synchronized int getLogCount(UUID player) {
         try (
-                Connection connection = getConnection();
+                Connection connection = this.dataSource.getConnection();
                 PreparedStatement fetchLogs = connection.prepareStatement(
                         "SELECT COUNT(*) FROM " + DatabaseConstants.VIOLATIONS_TABLE + " WHERE " + DatabaseConstants.VIOLATIONS_UUID_COLUMN + " = ?"
                 )
@@ -230,7 +216,7 @@ public class SQLiteViolationDatabase implements ViolationDatabase {
     public synchronized List<Violation> getViolations(UUID player, int page, int limit) {
         List<Violation> violations = new ArrayList<>();
         try (
-                Connection connection = getConnection();
+                Connection connection = this.dataSource.getConnection();
                 PreparedStatement fetchLogs = connection.prepareStatement(
                         "SELECT " +
                                 "v." + DatabaseConstants.VIOLATIONS_ID_COLUMN + ", " +
@@ -263,27 +249,5 @@ public class SQLiteViolationDatabase implements ViolationDatabase {
             LogUtil.error("Failed to fetch violations:", ex);
         }
         return violations;
-    }
-
-    @Override
-    public void disconnect() {
-        try {
-            if (openConnection != null && !openConnection.isClosed()) {
-                openConnection.close();
-            }
-        } catch (SQLException ex) {
-            LogUtil.error("Failed to close connection", ex);
-        }
-    }
-
-    protected synchronized Connection getConnection() throws SQLException {
-        if (openConnection == null || openConnection.isClosed()) {
-            openConnection = openConnection();
-        }
-        return openConnection;
-    }
-
-    protected Connection openConnection() throws SQLException {
-        return DriverManager.getConnection("jdbc:sqlite:" + plugin.getDataFolder().getAbsolutePath() + File.separator + "violations.sqlite");
     }
 }

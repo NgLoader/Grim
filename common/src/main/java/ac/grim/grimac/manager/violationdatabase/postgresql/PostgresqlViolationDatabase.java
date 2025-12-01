@@ -5,7 +5,6 @@ import ac.grim.grimac.manager.violationdatabase.*;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.LogUtil;
 import com.github.retrooper.packetevents.PacketEvents;
-import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 
 import java.sql.Connection;
@@ -15,35 +14,19 @@ import java.sql.SQLException;
 import java.util.List;
 import java.util.UUID;
 
-public class PostgresqlViolationDatabase implements ViolationDatabase {
+public record PostgresqlViolationDatabase(HikariDataSource dataSource) implements ViolationDatabase {
+
+    private static final DatabaseDialect DIALECT = new PostgresqlDialect();
 
     private static String quoteVerboseColumn() {
         return "\"" + DatabaseConstants.VIOLATIONS_VERBOSE_COLUMN + "\"";
     }
 
-    private HikariDataSource dataSource;
-    private final DatabaseDialect dialect;
-
-    public PostgresqlViolationDatabase(String url, String database, String username, String password) {
-        this.dialect = new PostgresqlDialect();
-        setupDataSource(url, database, username, password);
-    }
-
-    private void setupDataSource(String url, String database, String username, String password) {
-        HikariConfig config = new HikariConfig();
-        config.setJdbcUrl("jdbc:postgresql://" + url + "/" + database);
-        config.setUsername(username);
-        config.setPassword(password);
-        config.setMaximumPoolSize(10);
-        config.setAutoCommit(true);
-        dataSource = new HikariDataSource(config);
-    }
-
     @Override
-    public void connect() throws SQLException {
+    public void prepare() throws SQLException {
         try (Connection connection = dataSource.getConnection()) {
-            String pkSyntax = dialect.getAutoIncrementPrimaryKeySyntax();
-            String uuidType = dialect.getUuidColumnType();
+            String pkSyntax = DIALECT.getAutoIncrementPrimaryKeySyntax();
+            String uuidType = DIALECT.getUuidColumnType();
 
             // 1. Create Lookup Table for Server Names
             connection.prepareStatement(
@@ -190,12 +173,12 @@ public class PostgresqlViolationDatabase implements ViolationDatabase {
         ) {
             // Get or create IDs for all deduplicated strings
             String serverName = GrimAPI.INSTANCE.getConfigManager().getConfig().getStringElse("history.server-name", "Prison");
-            long serverId = DatabaseUtils.getOrCreateId(connection, dialect, DatabaseConstants.SERVERS_TABLE, DatabaseConstants.SERVERS_STRING_COLUMN, serverName);
-            long checkNameId = DatabaseUtils.getOrCreateId(connection, dialect, DatabaseConstants.CHECK_NAMES_TABLE, DatabaseConstants.CHECK_NAMES_STRING_COLUMN, checkName);
-            long grimVersionId = DatabaseUtils.getOrCreateId(connection, dialect, DatabaseConstants.GRIM_VERSIONS_TABLE, DatabaseConstants.GRIM_VERSIONS_STRING_COLUMN, grimVersion);
-            long clientBrandId = DatabaseUtils.getOrCreateId(connection, dialect, DatabaseConstants.CLIENT_BRANDS_TABLE, DatabaseConstants.CLIENT_BRANDS_STRING_COLUMN, player.getBrand());
-            long clientVersionId = DatabaseUtils.getOrCreateId(connection, dialect, DatabaseConstants.CLIENT_VERSIONS_TABLE, DatabaseConstants.CLIENT_VERSIONS_STRING_COLUMN, player.getClientVersion().getReleaseName());
-            long serverVersionId = DatabaseUtils.getOrCreateId(connection, dialect, DatabaseConstants.SERVER_VERSIONS_TABLE, DatabaseConstants.SERVER_VERSIONS_STRING_COLUMN, PacketEvents.getAPI().getServerManager().getVersion().toString());
+            long serverId = DatabaseUtils.getOrCreateId(connection, DIALECT, DatabaseConstants.SERVERS_TABLE, DatabaseConstants.SERVERS_STRING_COLUMN, serverName);
+            long checkNameId = DatabaseUtils.getOrCreateId(connection, DIALECT, DatabaseConstants.CHECK_NAMES_TABLE, DatabaseConstants.CHECK_NAMES_STRING_COLUMN, checkName);
+            long grimVersionId = DatabaseUtils.getOrCreateId(connection, DIALECT, DatabaseConstants.GRIM_VERSIONS_TABLE, DatabaseConstants.GRIM_VERSIONS_STRING_COLUMN, grimVersion);
+            long clientBrandId = DatabaseUtils.getOrCreateId(connection, DIALECT, DatabaseConstants.CLIENT_BRANDS_TABLE, DatabaseConstants.CLIENT_BRANDS_STRING_COLUMN, player.getBrand());
+            long clientVersionId = DatabaseUtils.getOrCreateId(connection, DIALECT, DatabaseConstants.CLIENT_VERSIONS_TABLE, DatabaseConstants.CLIENT_VERSIONS_STRING_COLUMN, player.getClientVersion().getReleaseName());
+            long serverVersionId = DatabaseUtils.getOrCreateId(connection, DIALECT, DatabaseConstants.SERVER_VERSIONS_TABLE, DatabaseConstants.SERVER_VERSIONS_STRING_COLUMN, PacketEvents.getAPI().getServerManager().getVersion().toString());
 
             // Set parameters for the PreparedStatement
             insertAlert.setLong(1, serverId);
@@ -268,19 +251,5 @@ public class PostgresqlViolationDatabase implements ViolationDatabase {
             LogUtil.error("Failed to fetch logs", ex);
             return null;
         }
-    }
-
-    @Override
-    public void disconnect() {
-        if (dataSource != null && !dataSource.isClosed()) {
-            dataSource.close();
-        }
-    }
-
-    public boolean sameConfig(String host, String db, String user, String pwd) {
-        String wantUrl = "jdbc:postgresql://" + host + "/" + db;
-        return wantUrl.equalsIgnoreCase(dataSource.getJdbcUrl())
-                && user.equals(dataSource.getUsername())
-                && pwd.equals(dataSource.getPassword());
     }
 }

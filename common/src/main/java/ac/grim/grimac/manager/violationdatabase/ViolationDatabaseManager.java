@@ -9,20 +9,38 @@ import ac.grim.grimac.manager.violationdatabase.mysql.MySQLViolationDatabase;
 import ac.grim.grimac.manager.violationdatabase.postgresql.PostgresqlViolationDatabase;
 import ac.grim.grimac.manager.violationdatabase.sqlite.SQLiteViolationDatabase;
 import ac.grim.grimac.player.GrimPlayer;
-import ac.grim.grimac.utils.anticheat.LogUtil;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 import lombok.Getter;
 import org.jetbrains.annotations.NotNull;
 
+import java.sql.Connection;
 import java.sql.SQLException;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 
 public class ViolationDatabaseManager implements StartableInitable, ReloadableInitable {
+
+    public static Properties parseConnectionProperties(ConfigManager configManager) {
+        Properties properties = new Properties();
+
+        Map<String, Object> hikariConfig = configManager.getMapElse("history.database.hikari", Collections.emptyMap());
+        if (hikariConfig != null) {
+            hikariConfig.forEach((key, value) -> properties.setProperty(key, String.valueOf(value)));
+        }
+
+        Map<String, Object> dataSourceConfig = configManager.getMapElse("history.database.dataSource", Collections.emptyMap());
+        if (dataSourceConfig != null) {
+            dataSourceConfig.forEach((key, value) -> properties.setProperty("dataSource." + key, String.valueOf(value)));
+        }
+
+        return properties;
+    }
 
     private final GrimPlugin plugin;
     @Getter private boolean enabled = false;
     @Getter private boolean loaded = false;
 
+    private HikariDataSource dataSource;
     private @NotNull ViolationDatabase database;
 
     public ViolationDatabaseManager(GrimPlugin plugin) {
@@ -43,86 +61,45 @@ public class ViolationDatabaseManager implements StartableInitable, ReloadableIn
     public void load() {
         ConfigManager cfg = GrimAPI.INSTANCE.getConfigManager().getConfig();
         this.enabled = cfg.getBooleanElse("history.enabled", false);
-        String rawType = this.enabled ? cfg.getStringElse("history.database.type", "SQLITE").toUpperCase() : "NOOP";
 
-        switch (rawType) {
-            case "SQLITE" -> {
-                if (!(database instanceof SQLiteViolationDatabase)) {
-                    database.disconnect();
-                    try {
-                        // Init sqlite
-                        Class.forName("org.sqlite.JDBC");
-                        this.database = new SQLiteViolationDatabase(plugin);
-                        database.connect();
-                        loaded = true;
-                    } catch (ClassNotFoundException e) {
-                        LogUtil.error(
-                                """
-                                        Could not load SQLite driver for /grim history database.
-                                        Download the minecraft-sqlite-jdbc mod/plugin for SQLite support, or change history.database.type
-                                        Alternatively set history.enabled=false to remove this message if /grim history support is not desired"""
-                        );
-                        this.database = NoOpViolationDatabase.INSTANCE;
-                        loaded = false;
-                    } catch (SQLException e) {
-                        LogUtil.error(e);
-                        this.database = NoOpViolationDatabase.INSTANCE;
-                        loaded = false;
-                    }
-                }
-            }
+        // disconnect if no longer needed
+        if (!this.enabled) {
+            this.disconnect();
+            return;
+        }
 
-            case "MYSQL" -> {
-                String host = cfg.getStringElse("history.database.host",     "localhost:3306");
-                String db   = cfg.getStringElse("history.database.database", "grimac");
-                String user = cfg.getStringElse("history.database.username", "root");
-                String pwd  = cfg.getStringElse("history.database.password", "password");
+        try {
+            Properties properties = parseConnectionProperties(cfg);
+            HikariConfig config = new HikariConfig(properties);
+            this.dataSource = new HikariDataSource(config);
 
-                if (database instanceof MySQLViolationDatabase mysql
-                        && mysql.sameConfig(host, db, user, pwd)) {
-                    break;                          // nothing changed → keep pool
-                }
-                database.disconnect();
-                database = new MySQLViolationDatabase(plugin, host, db, user, pwd);
-                try {
-                    database.connect();
-                    loaded = true;
-                } catch (SQLException e) {
-                    LogUtil.error(e);
-                    this.database = NoOpViolationDatabase.INSTANCE;
-                    loaded = false;
-                }
-            }
+            this.loadDatabase();
+        } catch (Exception e) {
+            this.disconnect();
 
-            case "POSTGRESQL" -> {
-                String host = cfg.getStringElse("history.database.host",     "localhost:3306");
-                String db   = cfg.getStringElse("history.database.database", "grimac");
-                String user = cfg.getStringElse("history.database.username", "root");
-                String pwd  = cfg.getStringElse("history.database.password", "password");
+            this.database = NoOpViolationDatabase.INSTANCE;
+            this.loaded = false;
+        }
+    }
 
-                if (database instanceof PostgresqlViolationDatabase postgresql
-                        && postgresql.sameConfig(host, db, user, pwd)) {
-                    break;                          // nothing changed → keep pool
-                }
-                database.disconnect();
-                database = new PostgresqlViolationDatabase(host, db, user, pwd);
-                try {
-                    database.connect();
-                    loaded = true;
-                } catch (SQLException e) {
-                    LogUtil.error(e);
-                    this.database = NoOpViolationDatabase.INSTANCE;
-                    loaded = false;
-                }
-            }
+    private void loadDatabase() throws SQLException {
+        try (Connection connection = this.dataSource.getConnection()) {
+            String driver = connection.getMetaData().getDatabaseProductName();
 
-            default -> { // NOOP or invalid
-                if (!(database instanceof NoOpViolationDatabase)) {
-                    database.disconnect();
-                    database = NoOpViolationDatabase.INSTANCE;
-                    loaded = false;
-                }
-            }
+            // TODO: use database registry
+            this.database = switch (driver) {
+                case "SQLite" -> new SQLiteViolationDatabase(this.dataSource);
+                case "MySQL" -> new MySQLViolationDatabase(this.dataSource);
+                case "PostgreSQL" -> new PostgresqlViolationDatabase(this.dataSource);
+                default -> NoOpViolationDatabase.INSTANCE;
+            };
+        }
+    }
+
+    private void disconnect() {
+        if (this.dataSource != null && !this.dataSource.isClosed()) {
+            this.dataSource.close();
+            this.dataSource = null;
         }
     }
 
@@ -138,5 +115,4 @@ public class ViolationDatabaseManager implements StartableInitable, ReloadableIn
     public List<Violation> getViolations(UUID player, int page, int limit) {
         return database.getViolations(player, page, limit);
     }
-
 }

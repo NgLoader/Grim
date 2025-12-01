@@ -221,10 +221,17 @@ history:
         # Use SQLITE for local storage, use MYSQL or POSTGRESQL if you have an external database. This is only updated on server restart
         type: SQLITE
         # database connection details
-        host: localhost
-        port: 3306
-        database: grim
-        username: root
-        password: ""
+        dataSource:
+            user: root
+            password: ""
+            portNumber: 3306
+            serverName: localhost
+            databaseName: grim
+
+            cachePrepStmts: true
+            prepStmtCacheSize: 250
+            prepStmtCacheSqlLimit: 2048
+        hikari:
+            idleTimeout: 30000
 
 config-version: 9
