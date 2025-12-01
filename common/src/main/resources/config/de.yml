@@ -218,26 +218,16 @@ history:
     # Welcher Servername soll für den History‑Befehl eingetragen werden? Nützlich, wenn dieselbe Datenbank für mehrere Server verwendet wird
     server-name: Prison
     database:
-        # SQLITE für lokale Speicherung, MYSQL oder POSTGRESQL für eine externe Datenbank. Wird nur nach Serverneustart aktualisiert
-        type: SQLITE
         # Datenbank verbindungsdetails
-        connection: server=localhost;uid=root;
-        host: localhost
-        port: 3306
-        database: grim
-        username: root
-        password: ""
+        hikari:
+            jdbcUrl: jdbc:mysql://localhost:3306/grim
+
         dataSource:
             user: root
             password: ""
-            portNumber: 3306
-            serverName: localhost
-            databaseName: grim
-            
+
             cachePrepStmts: true
             prepStmtCacheSize: 250
             prepStmtCacheSqlLimit: 2048
-        hikari:
-            idleTimeout: 30000
 
 config-version: 9

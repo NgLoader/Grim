@@ -9,6 +9,7 @@ import ac.grim.grimac.manager.violationdatabase.mysql.MySQLViolationDatabase;
 import ac.grim.grimac.manager.violationdatabase.postgresql.PostgresqlViolationDatabase;
 import ac.grim.grimac.manager.violationdatabase.sqlite.SQLiteViolationDatabase;
 import ac.grim.grimac.player.GrimPlayer;
+import ac.grim.grimac.utils.anticheat.LogUtil;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import lombok.Getter;
@@ -20,12 +21,17 @@ import java.util.*;
 
 public class ViolationDatabaseManager implements StartableInitable, ReloadableInitable {
 
-    public static Properties parseConnectionProperties(ConfigManager configManager) {
+    public static Properties parseConnectionProperties(GrimPlugin plugin, ConfigManager configManager) {
         Properties properties = new Properties();
 
         Map<String, Object> hikariConfig = configManager.getMapElse("history.database.hikari", Collections.emptyMap());
         if (hikariConfig != null) {
-            hikariConfig.forEach((key, value) -> properties.setProperty(key, String.valueOf(value)));
+            hikariConfig.forEach((key, value) -> {
+                if (key.startsWith("jdbcUrl") && value instanceof String valueString) {
+                    value = valueString.replace("%FOLDER%", plugin.getDataFolder().getAbsolutePath());
+                }
+                properties.setProperty(key, String.valueOf(value));
+            });
         }
 
         Map<String, Object> dataSourceConfig = configManager.getMapElse("history.database.dataSource", Collections.emptyMap());
@@ -39,6 +45,8 @@ public class ViolationDatabaseManager implements StartableInitable, ReloadableIn
     private final GrimPlugin plugin;
     @Getter private boolean enabled = false;
     @Getter private boolean loaded = false;
+
+    private Properties currentConfig;
 
     private HikariDataSource dataSource;
     private @NotNull ViolationDatabase database;
@@ -67,14 +75,33 @@ public class ViolationDatabaseManager implements StartableInitable, ReloadableIn
             this.disconnect();
             return;
         }
+        LogUtil.info("Loading database configuration...");
 
         try {
-            Properties properties = parseConnectionProperties(cfg);
+            Properties properties = parseConnectionProperties(this.plugin, cfg);
+            if (this.currentConfig != null) {
+                // ignore if no config changes exist
+                if (this.currentConfig.equals(properties)) {
+                    LogUtil.info("No database configuration changes detected.");
+                    return;
+                }
+
+                LogUtil.info("Database configuration detected...");
+                // disconnect because config has changed
+                this.disconnect();
+            }
+            // update current config
+            this.currentConfig = properties;
+
+            // load configuration and connect
             HikariConfig config = new HikariConfig(properties);
             this.dataSource = new HikariDataSource(config);
 
+            // load correct implementation
             this.loadDatabase();
         } catch (Exception e) {
+            LogUtil.error("Error in database connection", e);
+
             this.disconnect();
 
             this.database = NoOpViolationDatabase.INSTANCE;
@@ -84,20 +111,40 @@ public class ViolationDatabaseManager implements StartableInitable, ReloadableIn
 
     private void loadDatabase() throws SQLException {
         try (Connection connection = this.dataSource.getConnection()) {
+            // read current driver
             String driver = connection.getMetaData().getDatabaseProductName();
+            LogUtil.info("Detected database driver: " + driver + ".");
 
+            // check if driver is available
             // TODO: use database registry
             this.database = switch (driver) {
                 case "SQLite" -> new SQLiteViolationDatabase(this.dataSource);
                 case "MySQL" -> new MySQLViolationDatabase(this.dataSource);
                 case "PostgreSQL" -> new PostgresqlViolationDatabase(this.dataSource);
-                default -> NoOpViolationDatabase.INSTANCE;
+                default -> {
+                    LogUtil.warn("Detected database driver '" + driver + "' is not supported!");
+                    yield NoOpViolationDatabase.INSTANCE;
+                }
             };
+
+            // run setup
+            this.database.prepare();
+
+            if (this.database != NoOpViolationDatabase.INSTANCE) {
+                LogUtil.info("Database connection established.");
+            }
         }
     }
 
     private void disconnect() {
         if (this.dataSource != null && !this.dataSource.isClosed()) {
+            LogUtil.info("Disconnected from database.");
+
+            // reset current database
+            this.database = NoOpViolationDatabase.INSTANCE;
+            this.loaded = false;
+
+            // close connection
             this.dataSource.close();
             this.dataSource = null;
         }

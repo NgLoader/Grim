@@ -218,20 +218,16 @@ history:
     # What should the inserted server name be for the history command? This is useful if you use the same database for multiple servers
     server-name: Prison
     database:
-        # Use SQLITE for local storage, use MYSQL or POSTGRESQL if you have an external database. This is only updated on server restart
-        type: SQLITE
         # database connection details
+        hikari:
+            jdbcUrl: jdbc:mysql://localhost:3306/grim
+
         dataSource:
             user: root
             password: ""
-            portNumber: 3306
-            serverName: localhost
-            databaseName: grim
 
             cachePrepStmts: true
             prepStmtCacheSize: 250
             prepStmtCacheSqlLimit: 2048
-        hikari:
-            idleTimeout: 30000
 
 config-version: 9
