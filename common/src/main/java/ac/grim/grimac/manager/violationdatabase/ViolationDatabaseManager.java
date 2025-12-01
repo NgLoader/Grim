@@ -21,7 +21,7 @@ import java.util.*;
 
 public class ViolationDatabaseManager implements StartableInitable, ReloadableInitable {
 
-    public static Properties parseConnectionProperties(GrimPlugin plugin, ConfigManager configManager) {
+    private static Properties parseConnectionProperties(GrimPlugin plugin, ConfigManager configManager) {
         Properties properties = new Properties();
 
         Map<String, Object> hikariConfig = configManager.getMapElse("history.database.hikari", Collections.emptyMap());
@@ -100,7 +100,16 @@ public class ViolationDatabaseManager implements StartableInitable, ReloadableIn
             // load correct implementation
             this.loadDatabase();
         } catch (Exception e) {
-            LogUtil.error("Error in database connection", e);
+            Throwable cause = e.getCause();
+            if (cause instanceof ClassNotFoundException) {
+                LogUtil.error("""
+                        Could not load driver for /grim history database.
+                        Download the correct mod/plugin for driver support, or change history.database.type
+                        Alternatively set history.enabled=false to remove this message if /grim history support is not desired
+                        """, e);
+            } else {
+                LogUtil.error("Error in database connection", e);
+            }
 
             this.disconnect();
 
@@ -127,12 +136,14 @@ public class ViolationDatabaseManager implements StartableInitable, ReloadableIn
                 }
             };
 
+            if (this.database != NoOpViolationDatabase.INSTANCE) {
+                return;
+            }
+
             // run setup
             this.database.prepare();
 
-            if (this.database != NoOpViolationDatabase.INSTANCE) {
-                LogUtil.info("Database connection established.");
-            }
+            LogUtil.info("Database connection established.");
         }
     }
 
