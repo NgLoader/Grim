@@ -22,6 +22,7 @@ import com.github.retrooper.packetevents.protocol.item.ItemStack;
 import com.github.retrooper.packetevents.protocol.item.type.ItemType;
 import com.github.retrooper.packetevents.protocol.item.type.ItemTypes;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
+import com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon;
 import com.github.retrooper.packetevents.protocol.player.ClientVersion;
 import com.github.retrooper.packetevents.protocol.player.DiggingAction;
 import com.github.retrooper.packetevents.protocol.player.GameMode;
@@ -407,9 +408,10 @@ public class CheckManagerListener extends PacketListenerAbstract {
 
             WrapperPlayClientPlayerFlying flying = new WrapperPlayClientPlayerFlying(event);
 
-            Vector3d position = VectorUtils.clampVector(flying.getLocation().getPosition());
+            Location location = flying.getLocation();
+            Vector3d position = VectorUtils.clampVector(location.getPosition());
             // Teleports must be POS LOOK
-            teleportData = flying.hasPositionChanged() && flying.hasRotationChanged() ? player.getSetbackTeleportUtil().checkTeleportQueue(position.getX(), position.getY(), position.getZ()) : new TeleportAcceptData();
+            teleportData = flying.hasPositionChanged() && flying.hasRotationChanged() ? player.getSetbackTeleportUtil().checkTeleportQueue(position.getX(), position.getY(), position.getZ(), location.getYaw(), location.getPitch()) : new TeleportAcceptData();
             player.packetStateData.lastPacketWasTeleport = teleportData.isTeleport();
 
             if (flying.hasRotationChanged() && !flying.hasPositionChanged() && !flying.isOnGround() && !flying.isHorizontalCollision()) {
@@ -483,7 +485,7 @@ public class CheckManagerListener extends PacketListenerAbstract {
             player.yaw = move.getYaw();
             player.pitch = move.getPitch();
 
-            final VehiclePositionUpdate update = new VehiclePositionUpdate(clamp, position, move.getYaw(), move.getPitch(), player.packetStateData.lastPacketWasTeleport);
+            final VehiclePositionUpdate update = new VehiclePositionUpdate(clamp, position, move.getYaw(), move.getPitch(), move.isOnGround(), player.packetStateData.lastPacketWasTeleport);
             player.checkManager.onVehiclePositionUpdate(update);
 
             player.packetStateData.receivedSteerVehicle = false;
@@ -574,12 +576,17 @@ public class CheckManagerListener extends PacketListenerAbstract {
             player.packetStateData.cancelDuplicatePacket = false;
         }
 
-        if (event.getPacketType() == PacketType.Play.Client.CLIENT_TICK_END) {
+        if (event.getPacketType() == PacketType.Play.Client.CLIENT_TICK_END && player.supportsEndTick()) {
             player.serverOpenedInventoryThisTick = false;
             if (!player.packetStateData.didSendMovementBeforeTickEnd) {
                 // The player didn't send a movement packet, so we can predict this like we had idle tick on 1.8
                 player.packetStateData.didLastLastMovementIncludePosition = player.packetStateData.didLastMovementIncludePosition;
                 player.packetStateData.didLastMovementIncludePosition = false;
+
+                // Track dash cooldown
+                if (!player.inVehicle()) {
+                    player.dashableEntities.tick();
+                }
             }
             player.packetStateData.didSendMovementBeforeTickEnd = false;
         }
@@ -595,11 +602,12 @@ public class CheckManagerListener extends PacketListenerAbstract {
         GrimPlayer player = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(event.getUser());
         if (player == null) return;
 
-        if (event.getPacketType() == PacketType.Play.Server.OPEN_WINDOW) {
+        final PacketTypeCommon packetType = event.getPacketType();
+        if (packetType == PacketType.Play.Server.OPEN_WINDOW || packetType == PacketType.Play.Server.OPEN_HORSE_WINDOW) {
             player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), () -> player.serverOpenedInventoryThisTick = true);
         }
 
-        if (event.getPacketType() == PacketType.Play.Server.BUNDLE) {
+        if (packetType == PacketType.Play.Server.BUNDLE) {
             player.packetStateData.sendingBundlePacket = !player.packetStateData.sendingBundlePacket;
         }
 
@@ -620,7 +628,7 @@ public class CheckManagerListener extends PacketListenerAbstract {
         //
         // removed a large rant, but I'm keeping this out of context insult below
         // EVEN A BUNCH OF MONKEYS ON A TYPEWRITER COULDNT WRITE WORSE NETCODE THAN MOJANG
-        if (!player.packetStateData.lastPacketWasTeleport && flying.hasPositionChanged() && flying.hasRotationChanged() &&
+        if (flying.hasPositionChanged() && flying.hasRotationChanged() &&
                 // Ground status will never change in this stupidity packet
                 ((flying.isOnGround() == player.packetStateData.packetPlayerOnGround
                         // Mojang added this stupid mechanic in 1.17
@@ -715,6 +723,8 @@ public class CheckManagerListener extends PacketListenerAbstract {
         if (hasLook) {
             player.yaw = yaw;
             player.pitch = pitch;
+            player.vehicleData.playerPitch = pitch;
+            player.vehicleData.playerYaw = yaw;
 
             float deltaXRot = player.yaw - player.lastYaw;
             float deltaYRot = player.pitch - player.lastPitch;

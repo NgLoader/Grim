@@ -6,12 +6,10 @@ import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.BlockPlace;
 import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.grim.grimac.utils.data.Pair;
-import ac.grim.grimac.utils.math.Vector3dm;
 import ac.grim.grimac.utils.nmsutil.Ray;
 import ac.grim.grimac.utils.nmsutil.ReachUtils;
 import com.github.retrooper.packetevents.protocol.attribute.Attributes;
 import com.github.retrooper.packetevents.protocol.player.ClientVersion;
-import com.github.retrooper.packetevents.protocol.player.GameMode;
 import com.github.retrooper.packetevents.protocol.world.BlockFace;
 import com.github.retrooper.packetevents.protocol.world.states.type.StateTypes;
 import com.github.retrooper.packetevents.util.Vector3d;
@@ -22,7 +20,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-@CheckData(name = "RotationPlace", description = "Placed a block while not looking at it")
+@CheckData(name = "RotationPlace", stableKey = "grim.scaffolding.rotation_place", description = "Placed a block while not looking at it")
 public class RotationPlace extends BlockPlaceCheck {
     private double flagBuffer = 0; // If the player flags once, force them to play legit, or we will cancel the tick before.
     private boolean ignorePost = false;
@@ -34,7 +32,7 @@ public class RotationPlace extends BlockPlaceCheck {
     @Override
     public void onBlockPlace(final BlockPlace place) {
         if (place.material == StateTypes.SCAFFOLDING) return;
-        if (player.gamemode == GameMode.SPECTATOR)
+        if (!player.cameraEntity.isSelf())
             return; // you don't send flying packets when spectating entities
         if (player.inVehicle()) return;
         if (flagBuffer > 0 && !didRayTraceHit(place)) {
@@ -50,7 +48,7 @@ public class RotationPlace extends BlockPlaceCheck {
     @Override
     public void onPostFlyingBlockPlace(BlockPlace place) {
         if (place.material == StateTypes.SCAFFOLDING) return;
-        if (player.gamemode == GameMode.SPECTATOR)
+        if (!player.cameraEntity.isSelf())
             return; // you don't send flying packets when spectating entities
         if (player.inVehicle()) return;
 
@@ -115,7 +113,7 @@ public class RotationPlace extends BlockPlaceCheck {
                 Vector3d starting = new Vector3d(player.x, player.y + d, player.z);
                 // xRot and yRot are a tick behind
                 Ray trace = new Ray(player, starting.getX(), starting.getY(), starting.getZ(), lookDir.getX(), lookDir.getY());
-                Pair<Vector3dm, BlockFace> intercept = ReachUtils.calculateIntercept(box, trace.getOrigin(), trace.getPointAtDistance(distance));
+                Pair<Vector3d, BlockFace> intercept = ReachUtils.calculateIntercept(box, trace.origin(), trace.getPointAtDistance(distance));
 
                 if (intercept.first() != null) return true;
             }

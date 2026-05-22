@@ -10,13 +10,12 @@ import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.manager.server.ServerVersion;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import com.github.retrooper.packetevents.protocol.player.ClientVersion;
-import com.github.retrooper.packetevents.protocol.player.GameMode;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientUseItem;
 
 import java.util.ArrayList;
 import java.util.List;
 
-@CheckData(name = "BadPacketsJ", description = "Rotation in use item packet did not match tick rotation")
+@CheckData(name = "BadPacketsJ", stableKey = "grim.badpackets.use_item_rotation_mismatch", description = "Rotation in use item packet did not match tick rotation")
 public class BadPacketsJ extends Check implements PacketCheck {
     private final List<HeadRotation> rotations = new ArrayList<>();
 
@@ -26,7 +25,7 @@ public class BadPacketsJ extends Check implements PacketCheck {
 
     @Override
     public void onPacketReceive(PacketReceiveEvent event) {
-        if (player.gamemode == GameMode.SPECTATOR) {
+        if (!player.cameraEntity.isSelf()) {
             rotations.clear();
             return;
         }

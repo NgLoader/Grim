@@ -3,19 +3,24 @@ package ac.grim.grimac.predictionengine.predictions;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.predictionengine.SneakingEstimator;
 import ac.grim.grimac.predictionengine.movementtick.MovementTickerPlayer;
-import ac.grim.grimac.utils.math.Vec2;
 import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.grim.grimac.utils.data.KnownInput;
 import ac.grim.grimac.utils.data.Pair;
 import ac.grim.grimac.utils.data.VectorData;
 import ac.grim.grimac.utils.math.GrimMath;
+import ac.grim.grimac.utils.math.Vec2;
 import ac.grim.grimac.utils.math.Vector3dm;
 import ac.grim.grimac.utils.math.VectorUtils;
 import ac.grim.grimac.utils.nmsutil.Collisions;
 import ac.grim.grimac.utils.nmsutil.GetBoundingBox;
 import ac.grim.grimac.utils.nmsutil.JumpPower;
 import ac.grim.grimac.utils.nmsutil.Riptide;
+import com.github.retrooper.packetevents.PacketEvents;
+import com.github.retrooper.packetevents.manager.server.ServerVersion;
 import com.github.retrooper.packetevents.protocol.attribute.Attributes;
+import com.github.retrooper.packetevents.protocol.component.ComponentTypes;
+import com.github.retrooper.packetevents.protocol.component.builtin.item.ItemUseEffects;
+import com.github.retrooper.packetevents.protocol.item.ItemStack;
 import com.github.retrooper.packetevents.protocol.player.ClientVersion;
 
 import java.util.ArrayList;
@@ -74,7 +79,7 @@ public class PredictionEngine {
         } else {
             Vec2 input = moveVector.scale(0.98F);
             if (player.packetStateData.isSlowedByUsingItem() && !player.inVehicle()) {
-                input = input.scale(0.2F);
+                input = input.scale(getItemUseSpeedMultiplier(player));
             }
 
             if (player.isSlowMovement) {
@@ -102,6 +107,15 @@ public class PredictionEngine {
         float z = Math.abs(input.y());
         float additional = z > x ? x / z : z / x;
         return GrimMath.sqrt(1.0F + GrimMath.square(additional));
+    }
+
+    private static final boolean USE_EFFECTS_COMPONENT_EXISTS = PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_21_11);
+    private static float getItemUseSpeedMultiplier(GrimPlayer player) {
+        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_21_11) || !USE_EFFECTS_COMPONENT_EXISTS) return 0.2F;
+
+        ItemStack itemInHand = player.inventory.getItemInHand(player.packetStateData.itemInUseHand);
+        ItemUseEffects useEffects = itemInHand.getComponentOr(ComponentTypes.USE_EFFECTS, null);
+        return useEffects == null ? 0.2F : useEffects.getSpeedMultiplier();
     }
 
     public void guessBestMovement(float speed, GrimPlayer player) {
@@ -264,7 +278,8 @@ public class PredictionEngine {
         double xAdditional = Math.signum(primaryPushMovement.getX()) * SimpleCollisionBox.COLLISION_EPSILON;
         // The server likes sending y=0 kb "lifting" the player off the ground.
         // The client doesn't send the vehicles onGround status, so we can't check for ground like normal.
-        double yAdditional = vehicleKB ? 0 : (primaryPushMovement.getY() > 0 ? 1 : -1) * SimpleCollisionBox.COLLISION_EPSILON;
+        double yAdditional = vehicleKB ? 0 : (player.inVehicle() ? Math.signum(primaryPushMovement.getY()) : (primaryPushMovement.getY() > 0 ? 1 : -1))
+                * SimpleCollisionBox.COLLISION_EPSILON;
         double zAdditional = Math.signum(primaryPushMovement.getZ()) * SimpleCollisionBox.COLLISION_EPSILON;
 
         // Expand by the collision epsilon to test if the player collided with a block (as this resets the velocity in that direction)
@@ -364,7 +379,7 @@ public class PredictionEngine {
                 if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_13)) {
                     Vector3dm vec3 = player.baseTickWaterPushing.clone();
                     if (Math.abs(vectorData.vector.getX()) < 0.003 && Math.abs(vectorData.vector.getZ()) < 0.003 && player.baseTickWaterPushing.length() < 0.0045000000000000005D) {
-                        vec3 = vec3.normalize().multiply(0.0045000000000000005);
+                        vec3 = VectorUtils.normalize(player, vec3).multiply(0.0045000000000000005);
                     }
 
                     vectorData.vector = vectorData.vector.add(vec3);
@@ -402,7 +417,8 @@ public class PredictionEngine {
 
     private void addNonEffectiveAI(GrimPlayer player, Set<VectorData> data) {
         // For some reason on 1.21.5+ this no longer applies
-        if (!player.inVehicle() || player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5)) return;
+        if (!player.inVehicle() || player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_5))
+            return;
 
         for (VectorData vectorData : data) {
             vectorData.vector = vectorData.vector.clone().multiply(0.98);
@@ -633,7 +649,7 @@ public class PredictionEngine {
         }
 
         // Hidden slime block bounces by missing idle tick and 0.03
-        if (player.actualMovement.getY() >= 0 && player.uncertaintyHandler.influencedByBouncyBlock()) {
+        if (player.uncertaintyHandler.influencedByBouncyBlock()) {
             if (player.uncertaintyHandler.thisTickSlimeBlockUncertainty != 0 && !vector.isJump()) { // jumping overrides slime block
                 if (player.uncertaintyHandler.thisTickSlimeBlockUncertainty > maxVector.getY()) {
                     maxVector.setY(player.uncertaintyHandler.thisTickSlimeBlockUncertainty);
@@ -690,7 +706,7 @@ public class PredictionEngine {
         // a Y velocity of 0 to 0.1.  Because 0.03 we don't know this so just give lenience here
         //
         // Stuck on edge also reduces the player's movement.  It's wrong by 0.05 so hard to implement.
-        if (player.uncertaintyHandler.stuckOnEdge.hasOccurredSince(0) || player.uncertaintyHandler.isSteppingOnSlime) {
+        if (player.uncertaintyHandler.stuckOnEdge.hasOccurredSince(0) || player.uncertaintyHandler.influencedBySlime()) {
             // Avoid changing Y axis
             box.expandToAbsoluteCoordinates(0, box.maxY, 0);
         }

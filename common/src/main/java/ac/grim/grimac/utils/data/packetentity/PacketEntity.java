@@ -90,11 +90,16 @@ public class PacketEntity extends TypedPacketEntity {
 
     protected void initAttributes(GrimPlayer player) {
         trackAttribute(ValuedAttribute.ranged(Attributes.SCALE, 1.0, 0.0625, 16)
-                .requiredVersion(player, ClientVersion.V_1_20_5));
+                .requiredVersion(player, ClientVersion.V_1_20_5)
+                .withGetRewriter(this::clampScale));
         trackAttribute(ValuedAttribute.ranged(Attributes.STEP_HEIGHT, 0.6f, 0, 10)
                 .requiredVersion(player, ClientVersion.V_1_20_5));
         trackAttribute(ValuedAttribute.ranged(Attributes.GRAVITY, 0.08, -1, 1)
                 .requiredVersion(player, ClientVersion.V_1_20_5));
+    }
+
+    public double clampScale(double scale) {
+        return scale;
     }
 
     public Optional<ValuedAttribute> getAttribute(Attribute attribute) {
@@ -105,7 +110,7 @@ public class PacketEntity extends TypedPacketEntity {
     public void setAttribute(Attribute attribute, double value) {
         ValuedAttribute property = attributeMap.get(attribute);
         if (property == null) {
-            throw new IllegalArgumentException("Cannot set attribute " + attribute.getName() + " for entity " + type.getName() + "!");
+            throw new IllegalArgumentException("Cannot set attribute " + attribute.getName() + " for entity " + getType().getName() + "!");
         }
         property.override(value);
     }
@@ -113,7 +118,7 @@ public class PacketEntity extends TypedPacketEntity {
     public double getAttributeValue(Attribute attribute) {
         final ValuedAttribute property = attributeMap.get(attribute);
         if (property == null) {
-            throw new IllegalArgumentException("Cannot get attribute " + attribute.getName() + " for entity " + type.getName() + "!");
+            throw new IllegalArgumentException("Cannot get attribute " + attribute.getName() + " for entity " + getType().getName() + "!");
         }
         return property.get();
     }
@@ -147,16 +152,26 @@ public class PacketEntity extends TypedPacketEntity {
             }
         }
         this.oldPacketLocation = newPacketLocation;
-        this.newPacketLocation = new ReachInterpolationData(player, oldPacketLocation.getPossibleLocationCombined(), trackedServerPosition, this);
-
-        // TODO make config option to rewrite Rots to PosRots instead of expanding to handle this false
-        // https://bugs.mojang.com/browse/MC-255263
+        // BUG FIX LOGIC for https://bugs.mojang.com/browse/MC-255263
+        // 1. We MUST check !hasPos. If hasPos is true, we must let standard interpolation (4-arg) run.
+        // 2. The 3-arg constructor is for versions where the client FREEZES (targets current pos) when rot only packets come in
         if (!hasPos &&
-                // Fixed in 1.21.9 again
-                (player.getClientVersion().isOlderThan(ClientVersion.V_1_21_9) && player.getClientVersion().isNewerThan(ClientVersion.V_1_21_4)) ||
-                (player.getClientVersion().isOlderThan(ClientVersion.V_1_20_2) && player.getClientVersion().isNewerThan(ClientVersion.V_1_14_4))
+                // Logic for versions that FREEZE (Target = Current)
+                // 1.21.5 -> 1.21.8 (regression)
+                ((player.getClientVersion().isOlderThan(ClientVersion.V_1_21_9) && player.getClientVersion().isNewerThan(ClientVersion.V_1_21_4)) ||
+                        // 1.15 -> 1.20.1 (Old bug)
+                        (player.getClientVersion().isOlderThan(ClientVersion.V_1_20_2) && player.getClientVersion().isNewerThan(ClientVersion.V_1_14_4)))
         ) {
-            newPacketLocation.cancelLerp();
+            // Apply Freeze Fix (Start = Box, Target = Box)
+            this.newPacketLocation = new ReachInterpolationData(
+                    player,
+                    oldPacketLocation.getPossibleLocationCombined(),
+                    this
+            );
+        } else {
+            // Standard Interpolation (Start = Box, Target = ServerPos)
+            // This naturally fixes the "Slowdown"/Interpolation Reset in 1.20.2-1.21.4 and 1.21.9+ resetting the lerp timer
+            this.newPacketLocation = new ReachInterpolationData(player, oldPacketLocation.getPossibleLocationCombined(), trackedServerPosition, this);
         }
 
         // In versions < 1.16.2 when the client receives non-relative teleport for an entity

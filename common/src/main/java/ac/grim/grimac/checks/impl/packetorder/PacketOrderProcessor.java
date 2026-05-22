@@ -8,7 +8,6 @@ import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon;
 import com.github.retrooper.packetevents.protocol.player.ClientVersion;
-import com.github.retrooper.packetevents.protocol.player.GameMode;
 import com.github.retrooper.packetevents.protocol.world.BlockFace;
 import com.github.retrooper.packetevents.wrapper.play.client.*;
 import lombok.Getter;
@@ -39,6 +38,7 @@ public final class PacketOrderProcessor extends Check implements PacketCheck {
     private boolean leavingBed;
     private boolean startingToGlide;
     private boolean jumpingWithMount;
+    private boolean stabbing;
 
     @Override
     public void onPacketReceive(PacketReceiveEvent event) {
@@ -58,12 +58,17 @@ public final class PacketOrderProcessor extends Check implements PacketCheck {
             }
         }
 
+        if (packetType == PacketType.Play.Client.ATTACK || packetType == PacketType.Play.Client.SPECTATE_ENTITY) {
+            attacking = true;
+        }
+
         if (packetType == PacketType.Play.Client.PLAYER_DIGGING) {
             switch (new WrapperPlayClientPlayerDigging(event).getAction()) {
                 case SWAP_ITEM_WITH_OFFHAND -> swapping = true;
                 case DROP_ITEM, DROP_ITEM_STACK -> dropping = true;
                 case RELEASE_USE_ITEM -> releasing = true;
                 case FINISHED_DIGGING, CANCELLED_DIGGING, START_DIGGING -> digging = true;
+                case STAB -> stabbing = true;
             }
         }
 
@@ -111,7 +116,7 @@ public final class PacketOrderProcessor extends Check implements PacketCheck {
             closingInventory = true;
         }
 
-        if (player.gamemode == GameMode.SPECTATOR || isTickPacket(packetType)
+        if (!player.cameraEntity.isSelf() || isTickPacket(packetType)
                 || player.getClientVersion().isOlderThan(ClientVersion.V_1_21_2)
                 && !player.compensatedWorld.isChunkLoaded(GrimMath.floor(player.x) >> 4, GrimMath.floor(player.z) >> 4)) {
             openingInventory = false;
@@ -133,11 +138,17 @@ public final class PacketOrderProcessor extends Check implements PacketCheck {
             leavingBed = false;
             startingToGlide = false;
             jumpingWithMount = false;
+            stabbing = false;
         }
     }
 
     @Contract(pure = true)
     public boolean isRightClicking() {
         return placing || using || interacting;
+    }
+
+    @Contract(pure = true)
+    public boolean isAttackingOrStabbing() {
+        return attacking || stabbing;
     }
 }

@@ -10,69 +10,32 @@ plugins {
 }
 
 repositories {
-    if (BuildConfig.mavenLocalOverride) {
-        mavenLocal()
+    // 1. Fallback for non-exclusive deps (e.g. Maven Central deps)
+    if (BuildConfig.mavenLocalOverride) mavenLocal()
+
+    // 2. Exclusive Repositories (One HTTP request per dep)
+    exclusive("https://repo.papermc.io/repository/maven-public/", { name = "papermc" }) {
+        includeGroup("io.papermc.paper")
+        includeGroup("net.md-5")
     }
 
-    // For paper-api
-    exclusiveContent {
-        forRepository {
-            maven {
-                name = "papermc"
-                url = uri("https://repo.papermc.io/repository/maven-public/")
-            }
-        }
-        filter {
-            includeGroup("io.papermc.paper")
-            includeGroup("net.md-5")
-        }
+    exclusive("https://libraries.minecraft.net", { mavenContent { releasesOnly() } }) {
+        includeModule("com.mojang", "brigadier")
     }
 
-    exclusiveContent {
-        forRepository {
-            maven("https://libraries.minecraft.net") { // Brigadier
-                mavenContent { releasesOnly() }
-            }
-        }
-        filter {
-            includeModule("com.mojang", "brigadier")
-        }
+    exclusive("https://repo.extendedclip.com/content/repositories/placeholderapi/") {
+        includeGroup("me.clip")
     }
 
-    // For placeholderapi
-    exclusiveContent {
-        forRepository {
-            maven("https://repo.extendedclip.com/content/repositories/placeholderapi/")
-        }
-        filter {
-            includeGroup("me.clip")
-        }
+    exclusive("https://repo.grim.ac/snapshots") {
+        includeGroup("ac.grim.grimac")
+        includeGroup("com.github.retrooper")
     }
 
-    // For GrimAPI and PacketEvents (transitive from :common, direct in :bukkit)
-    exclusiveContent {
-        forRepository {
-            maven("https://repo.grim.ac/snapshots")
-        }
-        filter {
-            includeGroup("ac.grim.grimac")
-            includeGroup("com.github.retrooper")
-        }
+    exclusive("https://nexus.scarsz.me/content/repositories/releases", { mavenContent { releasesOnly() } }) {
+        includeGroup("github.scarsz")
     }
 
-    // For Configuralize (transitive from :common)
-    exclusiveContent {
-        forRepository {
-            maven("https://nexus.scarsz.me/content/repositories/releases") {
-                mavenContent { releasesOnly() }
-            }
-        }
-        filter {
-            includeGroup("github.scarsz")
-        }
-    }
-
-    // Maven Central Fallback
     mavenCentral()
 }
 
@@ -88,6 +51,7 @@ dependencies {
     }
     implementation(libs.cloud.paper)
     implementation(libs.adventure.platform.bukkit)
+    implementation(libs.grim.bukkit.internal)
 
     implementation(project(":common"))
     shadow(project(":common"))
@@ -116,6 +80,13 @@ bukkit {
         "floodgate",
         "FastLogin",
         "PlaceholderAPI",
+        // Driver holder mods — softdepend so each backend's driver class
+        // resolves through the linked classloader.
+        "sqlite-jdbc",
+        "mysql-jdbc",
+        "postgresql-jdbc",
+        "mongodb-driver",
+        "jedis",
     )
 
     permissions {
@@ -195,7 +166,13 @@ publishing.publications.create<MavenPublication>("maven") {
 
 tasks {
     runServer {
-        minecraftVersion("1.21.10")
+        val javaToolchains = project.extensions.getByType<JavaToolchainService>()
+        javaLauncher = javaToolchains.launcherFor {
+            vendor = JvmVendorSpec.JETBRAINS
+            languageVersion = JavaLanguageVersion.of(25)
+        }
+        systemProperties(mapOf("paper.explicit-flush" to "true"))
+        minecraftVersion("26.1.2")
     }
 
     shadowJar {

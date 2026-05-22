@@ -4,17 +4,17 @@ adventure = "4.23.0"
 adventure-platform-bukkit = "4.4.0"
 paper-api = "1.20.6-R0.1-SNAPSHOT"
 cloud = "2.0.0"
-cloud-paper = "2.0.0-beta.13"
-cloud-fabric = "2.0.0-beta.13"
+cloud-paper = "2.0.0-beta.15"
+cloud-fabric = "2.0.0-beta.15"
 cloud-processors-requirements = "1.0.0-rc.1"
 
 # --- Minecraft-Specific APIs ---
 floodgate-api = "2.0-SNAPSHOT"
 geyser-base-api = "1.0.2"
-grim-api = "1.2.0.0"
-packetevents = "2.10.2+3684f01-SNAPSHOT"
+grim-api = "1.5.0.3-10fed42"
+packetevents = "2.12.2+22c9961-SNAPSHOT"
 placeholderapi = "2.11.6"
-viaversion = "5.5.0"
+viaversion = "5.9.0"
 
 # --- General Java Utilities ---
 fastutil = "8.5.15"
@@ -26,9 +26,9 @@ configuralize = "1.4.1" # :slim classifier is applied in build.gradle.kts
 
 # --- Build & Tooling ---
 fabric-loader = "0.16.14"
-fabric-loom = "1.11.8"
+fabric-loom = "1.15.5"
 lombok = "9.0.0"
-shadow = "9.0.0-rc2"
+shadow = "9.3.0"
 spotless = "6.25.0"
 
 [libraries]
@@ -49,10 +49,15 @@ configuralize = { group = "github.scarsz", name = "configuralize", version.ref =
 floodgate-api = { group = "org.geysermc.floodgate", name = "api", version.ref = "floodgate-api"}
 geyser-base-api = { group = "org.geysermc.api", name = "base-api", version.ref = "geyser-base-api" }
 grim-api = { group = "ac.grim.grimac", name = "GrimAPI", version.ref = "grim-api" }
+grim-internal = { group = "ac.grim.grimac", name = "grim-internal", version.ref = "grim-api" }
+grim-internal-shims = { group = "ac.grim.grimac", name = "grim-internal-shims", version.ref = "grim-api" }
+grim-bukkit-internal = { group = "ac.grim.grimac", name = "grim-bukkit-internal", version.ref = "grim-api" }
+grim-fabric-internal = { group = "ac.grim.grimac", name = "grim-fabric-internal", version.ref = "grim-api" }
 packetevents-api = { group = "com.github.retrooper", name = "packetevents-api", version.ref = "packetevents" }
 packetevents-fabric = { group  = "com.github.retrooper", name = "packetevents-fabric", version.ref = "packetevents" }
 packetevents-spigot = { group = "com.github.retrooper", name = "packetevents-spigot", version.ref = "packetevents"}
 viaversion = { group = "com.viaversion", name = "viaversion", version.ref = "viaversion" }
+viabackwards = { group = "com.viaversion", name = "viabackwards", version.ref = "viaversion" }
 
 # --- General Java Utilities ---
 fastutil = { group = "it.unimi.dsi", name = "fastutil", version.ref = "fastutil"}

@@ -1,16 +1,16 @@
 package ac.grim.grimac.platform.fabric.mc1161.player;
 
 import ac.grim.grimac.platform.fabric.player.AbstractFabricPlatformInventory;
+import ac.grim.grimac.platform.fabric.player.AbstractFabricPlatformPlayer;
 import net.minecraft.core.Registry;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.InventoryMenu;
 import net.minecraft.world.inventory.MenuType;
 import org.jetbrains.annotations.Nullable;
 
 public class Fabric1161PlatformInventory extends AbstractFabricPlatformInventory {
-    public Fabric1161PlatformInventory(ServerPlayer player) {
+    public Fabric1161PlatformInventory(AbstractFabricPlatformPlayer player) {
         super(player);
     }
 
@@ -23,7 +23,7 @@ public class Fabric1161PlatformInventory extends AbstractFabricPlatformInventory
     // And is slated to be replaced by packet based behaviour, this should do for now
     @Override
     public String getOpenInventoryKey() {
-        AbstractContainerMenu handler = fabricPlayer.containerMenu;
+        AbstractContainerMenu handler = fabricPlatformPlayer.getNative().containerMenu;
         MenuType<?> type = getSafeType(handler);
 
         // Handle null types (player crafting and creative)
@@ -55,7 +55,7 @@ public class Fabric1161PlatformInventory extends AbstractFabricPlatformInventory
             // SHULKER_BOX -> SHULKER_BOX
             // CRAFTIING -> CRAFTING
 
-            ResourceLocation registryKey = this.getScreenID(type);
+            ResourceLocation registryKey = (ResourceLocation) this.getScreenID(type);
             if (registryKey != null) {
                 return registryKey.getPath();
             }
@@ -64,12 +64,14 @@ public class Fabric1161PlatformInventory extends AbstractFabricPlatformInventory
         }
     }
 
-    protected ResourceLocation getScreenID(MenuType<?> type) {
+    // returns Identifier in > 1.21.11, and ResourceLocation in 1.21.10-, which both map to class_2960
+    // Compiler doesn't know that though and throws a fit, thus we make it return Object and cast to class_2960
+    protected Object getScreenID(MenuType<?> type) {
         return Registry.MENU.getKey(type);
     }
 
     protected boolean isPlayerCreative() {
-        return fabricPlayer.isCreative();
+        return fabricPlatformPlayer.getNative().isCreative();
     }
 
     protected @Nullable MenuType<?> getSafeType(AbstractContainerMenu handler) {

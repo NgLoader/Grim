@@ -113,6 +113,11 @@ public class PacketServerTeleport extends PacketListenerAbstract {
                 }
             }
 
+            // 1.21.2+ client ignore teleports if player is inside vehicle, ABSOLUTE CINEMA MOJANG
+            if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21_2) && player.compensatedEntities.serverPlayerVehicle != null) {
+                pos = player.getSetbackTeleportUtil().lastKnownGoodPosition.getPos();
+            }
+
             player.sendTransaction();
             final int lastTransactionSent = player.lastTransactionSent.get();
             event.getTasksAfterSend().add(player::sendTransaction);
@@ -126,7 +131,7 @@ public class PacketServerTeleport extends PacketListenerAbstract {
             if (PacketEvents.getAPI().getServerManager().getVersion().isOlderThan(ServerVersion.V_1_8))
                 pos = pos.withY(pos.getY() - 1.62);
 
-            Location target = new Location(null, pos.getX(), pos.getY(), pos.getZ());
+            Location target = new Location(null, pos.getX(), pos.getY(), pos.getZ(), teleport.getYaw(), teleport.getPitch());
             player.getSetbackTeleportUtil().addSentTeleport(target, teleport.getDeltaMovement(), lastTransactionSent, teleport.getRelativeFlags(), true, teleport.getTeleportId());
         }
 

@@ -27,6 +27,7 @@ public class PunishmentManager implements ConfigReloadable {
     private String alertString;
     private boolean testMode;
     private String proxyAlertString = "";
+    private static final CommandExecuteEvent.Channel COMMAND_CHANNEL = GrimAPI.INSTANCE.getEventBus().get(CommandExecuteEvent.class);
 
     public PunishmentManager(GrimPlayer player) {
         this.player = player;
@@ -129,20 +130,24 @@ public class PunishmentManager implements ConfigReloadable {
                     }
 
                     if (violationCount >= command.threshold) {
-                        // 0 means execute once
-                        // Any other number means execute every X interval
-                        boolean inInterval = command.interval == 0 ? (command.executeCount == 0) : (violationCount % command.interval == 0);
-                        if (inInterval) {
-                            CommandExecuteEvent executeEvent = new CommandExecuteEvent(player, check, verbose, cmd);
-                            GrimAPI.INSTANCE.getEventBus().post(executeEvent);
-                            if (executeEvent.isCancelled()) continue;
+                        boolean shouldRun = command.interval == 0
+                                ? command.executeCount == 0
+                                : violationCount >= command.nextBoundary;
+                        if (shouldRun) {
+                            boolean canceled = COMMAND_CHANNEL.fire(player, check, verbose, cmd);
+                            if (command.interval == 0) {
+                                command.executeCount++;
+                            } else {
+                                advanceBoundary(command, violationCount);
+                            }
+                            if (canceled) continue;
 
                             switch (command.command) {
                                 case "[webhook]" -> GrimAPI.INSTANCE.getDiscordManager().sendAlert(player, verbose, check.getDisplayName(), vl);
                                 case "[log]" -> {
-                                    int vls = (int) group.violations.values().stream().filter((e) -> e == check).count();
                                     String verboseWithoutGl = verbose.replaceAll(" /gl .*", "");
-                                    GrimAPI.INSTANCE.getViolationDatabaseManager().logAlert(player, verboseWithoutGl, check.getDisplayName(), vls);
+                                    GrimAPI.INSTANCE.getDataStoreLifecycle().liveWriteHooks()
+                                            .recordFlagFromCheck(player, check, vl, verboseWithoutGl);
                                 }
                                 case "[proxy]" -> ProxyAlertMessenger.sendPluginMessage(cmd);
                                 case "[alert]" -> {
@@ -165,13 +170,21 @@ public class PunishmentManager implements ConfigReloadable {
                             }
                         }
 
-                        command.executeCount++;
+                        if (command.interval > 0) command.executeCount++;
+                    } else {
+                        // Interval commands re-arm after the active rolling count
+                        // cools below their threshold.
+                        command.nextBoundary = command.threshold;
                     }
                 }
             }
         }
 
         return sentDebug;
+    }
+
+    private static void advanceBoundary(ParsedCommand command, int violationCount) {
+        command.nextBoundary += ((violationCount - command.nextBoundary) / command.interval + 1) * command.interval;
     }
 
     public void handleViolation(Check check) {
@@ -203,10 +216,19 @@ class PunishGroup {
     public final int removeViolationsAfter; // time to remove violations after in milliseconds
 }
 
-@RequiredArgsConstructor
 class ParsedCommand {
     public final int threshold;
     public final int interval;
     public final String command;
+    // Legacy M=0 gate: execute once for this loaded command state.
     public int executeCount;
+    // For M>0, the next active violation count that should run this command.
+    public int nextBoundary;
+
+    public ParsedCommand(int threshold, int interval, String command) {
+        this.threshold = threshold;
+        this.interval = interval;
+        this.command = command;
+        this.nextBoundary = threshold;
+    }
 }

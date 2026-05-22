@@ -8,10 +8,12 @@ import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.grim.grimac.utils.data.VectorData;
 import ac.grim.grimac.utils.data.packetentity.PacketEntity;
 import ac.grim.grimac.utils.data.packetentity.PacketEntityStrider;
+import ac.grim.grimac.utils.enums.FluidTag;
 import ac.grim.grimac.utils.math.GrimMath;
 import ac.grim.grimac.utils.math.Vector3dm;
 import ac.grim.grimac.utils.nmsutil.BlockProperties;
 import ac.grim.grimac.utils.nmsutil.Collisions;
+import ac.grim.grimac.utils.nmsutil.EntityTypeTags;
 import ac.grim.grimac.utils.nmsutil.FluidFallingAdjustedMovement;
 import ac.grim.grimac.utils.nmsutil.GetBoundingBox;
 import ac.grim.grimac.utils.nmsutil.MainSupportingBlockPosFinder;
@@ -172,13 +174,17 @@ public class MovementTicker {
         final PacketEntity riding = player.compensatedEntities.self.getRiding();
         // this needs to be looked at for 1.21.2+ (especially when riding entities, as Mojang has changed this logic a few times).
         if (player.getClientVersion() != ClientVersion.V_1_21_4 && (!player.wasTouchingWater && (riding == null || (!riding.isBoat && !riding.isHappyGhast)))) {
-            PlayerBaseTick.updateInWaterStateAndDoWaterCurrentPushing(player);
+            if (player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_21_11)) {
+                PlayerBaseTick.updateInWaterStateAndDoWaterCurrentPushing(player);
+            } else {
+                PlayerBaseTick.updateFluidInteraction(player);
+            }
         }
 
         if (player.onGround) {
             player.fallDistance = 0;
         } else if (collide.getY() < 0) {
-            player.fallDistance = (player.fallDistance) - collide.getY();
+            player.fallDistance -= collide.getY();
             player.vehicleData.lastYd = collide.getY();
         }
 
@@ -206,9 +212,13 @@ public class MovementTicker {
                     }
                 }
             } else if (BlockTags.BEDS.contains(onBlock) && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_12)) {
-                if (player.clientVelocity.getY() < 0.0) {
-                    player.clientVelocity.setY(-player.clientVelocity.getY() * 0.6600000262260437 *
-                            (riding != null && !riding.isLivingEntity ? 0.8 : 1.0));
+                if (player.isSneaking) { // Bed blocks use shifting instead of sneaking
+                    player.clientVelocity.setY(0);
+                } else {
+                    if (player.clientVelocity.getY() < 0.0) {
+                        player.clientVelocity.setY(-player.clientVelocity.getY() * 0.6600000262260437 *
+                                (riding != null && !riding.isLivingEntity ? 0.8 : 1.0));
+                    }
                 }
             } else {
                 player.clientVelocity.setY(0);
@@ -405,7 +415,7 @@ public class MovementTicker {
         if (player.wasTouchingWater && !player.isFlying) {
             // 0.8F seems hardcoded in
             // 1.13+ players on skeleton horses swim faster! Cool feature.
-            boolean isSkeletonHorse = player.inVehicle() && player.compensatedEntities.self.getRiding().type == EntityTypes.SKELETON_HORSE && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_13);
+            boolean isSkeletonHorse = player.inVehicle() && player.compensatedEntities.self.getRiding().getType() == EntityTypes.SKELETON_HORSE && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_13);
             swimFriction = player.isSprinting && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_13) ? 0.9F : (isSkeletonHorse ? 0.96F : 0.8F);
             float swimSpeed = 0.02F;
 
@@ -438,14 +448,16 @@ public class MovementTicker {
                 player.lastWasClimbing = FluidFallingAdjustedMovement.getFluidFallingAdjustedMovement(player, playerGravity, isFalling, player.clientVelocity.clone().setY(0.2D * 0.8F)).getY();
             }
 
+            floatInWaterWhileRidden();
         } else {
+            player.canFloatWhileRidden = false;
             if (player.wasTouchingLava && !player.isFlying && !(lavaLevel > 0 && canStandOnLava())) {
                 player.friction = 0.5F; // Not vanilla, just useful for other grim stuff
 
                 doLavaMove();
 
                 // Lava movement changed in 1.16
-                if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_16) && player.slightlyTouchingLava) {
+                if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_16) && player.getFluidHeight(FluidTag.LAVA) <= 0.4D) {
                     player.clientVelocity = player.clientVelocity.multiply(0.5D, 0.800000011920929D, 0.5D);
                     player.clientVelocity = FluidFallingAdjustedMovement.getFluidFallingAdjustedMovement(player, playerGravity, isFalling, player.clientVelocity);
                 } else {
@@ -482,6 +494,21 @@ public class MovementTicker {
         }
 
         Collisions.applyEffectsFromBlocks(player);
+    }
+
+    private boolean canFloatWhileRidden() {
+        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_21_11) || !player.inVehicle()) return false;
+
+        PacketEntity vehicle = player.getVehicle();
+        double fluidHeight = player.getFluidHeight(FluidTag.WATER);
+        return EntityTypeTags.CAN_FLOAT_WHILE_RIDDEN.anyOf(vehicle.getType()) && fluidHeight > 0.4;
+    }
+
+    private void floatInWaterWhileRidden() {
+        player.canFloatWhileRidden = canFloatWhileRidden();
+        if (player.canFloatWhileRidden) {
+            player.clientVelocity.add(0.0, 0.03999999910593033, 0.0);
+        }
     }
 
     public boolean canStandOnLava() {

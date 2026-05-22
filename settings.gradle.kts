@@ -68,4 +68,6 @@ include(":fabric:mc1161")
 include(":fabric:mc1171")
 include(":fabric:mc1194")
 include(":fabric:mc1205")
-include(":fabric:mc1216")
+include(":fabric:mc12111")
+
+if (file("workspace.gradle.kts").exists()) apply(from = "workspace.gradle.kts")

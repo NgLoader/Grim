@@ -7,7 +7,6 @@ import ac.grim.grimac.utils.anticheat.MessageUtil;
 import ac.grim.grimac.utils.anticheat.update.BlockPlace;
 import ac.grim.grimac.utils.anticheat.update.PredictionComplete;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.protocol.player.GameMode;
 import com.github.retrooper.packetevents.protocol.world.BlockFace;
 import com.github.retrooper.packetevents.util.Vector3f;
 import com.github.retrooper.packetevents.util.Vector3i;
@@ -15,7 +14,7 @@ import com.github.retrooper.packetevents.util.Vector3i;
 import java.util.ArrayList;
 import java.util.List;
 
-@CheckData(name = "MultiPlace", description = "Placed multiple blocks in a tick", experimental = true)
+@CheckData(name = "MultiPlace", stableKey = "grim.scaffolding.multi_place", description = "Placed multiple blocks in a tick", experimental = true)
 public class MultiPlace extends BlockPlaceCheck {
     private final List<String> flags = new ArrayList<>();
     private boolean hasPlaced;
@@ -54,7 +53,7 @@ public class MultiPlace extends BlockPlaceCheck {
 
     @Override
     public void onPacketReceive(PacketReceiveEvent event) {
-        if (player.gamemode == GameMode.SPECTATOR || isTickPacket(event.getPacketType())) {
+        if (!player.cameraEntity.isSelf() || isTickPacket(event.getPacketType())) {
             hasPlaced = false;
         }
     }

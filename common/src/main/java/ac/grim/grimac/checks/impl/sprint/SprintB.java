@@ -10,7 +10,7 @@ import com.github.retrooper.packetevents.protocol.player.ClientVersion;
 
 import java.util.Collections;
 
-@CheckData(name = "SprintB", description = "Sprinting while sneaking or crawling", setback = 5, experimental = true)
+@CheckData(name = "SprintB", stableKey = "grim.sprint.sneaking", description = "Sprinting while sneaking or crawling", setback = 5, experimental = true)
 public class SprintB extends Check implements PostPredictionCheck {
     public SprintB(GrimPlayer player) {
         super(player);
@@ -38,7 +38,11 @@ public class SprintB extends Check implements PostPredictionCheck {
                 return;
             }
 
-            if (player.isSprinting && (!player.wasTouchingWater || version.isOlderThan(ClientVersion.V_1_13))) {
+            if (!player.wasTouchingWater || version.isOlderThan(ClientVersion.V_1_13)) {
+                return;
+            }
+
+            if (player.isSprinting) {
                 flagAndAlertWithSetback();
             } else reward();
         }

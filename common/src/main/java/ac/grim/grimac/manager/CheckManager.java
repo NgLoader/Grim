@@ -11,10 +11,7 @@ import ac.grim.grimac.checks.impl.chat.ChatA;
 import ac.grim.grimac.checks.impl.chat.ChatB;
 import ac.grim.grimac.checks.impl.chat.ChatC;
 import ac.grim.grimac.checks.impl.chat.ChatD;
-import ac.grim.grimac.checks.impl.combat.Hitboxes;
-import ac.grim.grimac.checks.impl.combat.MultiInteractA;
-import ac.grim.grimac.checks.impl.combat.MultiInteractB;
-import ac.grim.grimac.checks.impl.combat.Reach;
+import ac.grim.grimac.checks.impl.combat.*;
 import ac.grim.grimac.checks.impl.crash.*;
 import ac.grim.grimac.checks.impl.elytra.*;
 import ac.grim.grimac.checks.impl.exploit.ExploitA;
@@ -51,6 +48,7 @@ import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.predictionengine.GhostBlockDetector;
 import ac.grim.grimac.predictionengine.SneakingEstimator;
 import ac.grim.grimac.utils.anticheat.update.*;
+import ac.grim.grimac.utils.latency.CompensatedCameraEntity;
 import ac.grim.grimac.utils.latency.CompensatedCooldown;
 import ac.grim.grimac.utils.latency.CompensatedFireworks;
 import ac.grim.grimac.utils.latency.CompensatedInventory;
@@ -59,7 +57,10 @@ import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.event.PacketSendEvent;
 import com.google.common.collect.ClassToInstanceMap;
 import com.google.common.collect.ImmutableClassToInstanceMap;
+import lombok.Getter;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class CheckManager {
@@ -74,18 +75,31 @@ public class CheckManager {
     private final ClassToInstanceMap<BlockBreakCheck> blockBreakChecks;
     private final ClassToInstanceMap<BlockPlaceCheck> blockPlaceChecks;
     private final ClassToInstanceMap<PostPredictionCheck> postPredictionChecks;
-    private PacketEntityReplication packetEntityReplication = null;
+    @Getter
+    private final PacketEntityReplication packetEntityReplication;
+
+    private final List<PacketCheck> packetChecksValues;
+    private final List<PositionCheck> positionChecksValues;
+    private final List<RotationCheck> rotationChecksValues;
+    private final List<VehicleCheck> vehicleChecksValues;
+    private final List<PacketCheck> prePredictionChecksValues;
+    private final List<BlockBreakCheck> blockBreakChecksValues;
+    private final List<BlockPlaceCheck> blockPlaceChecksValues;
+    private final List<PostPredictionCheck> postPredictionChecksValues;
 
     public CheckManager(GrimPlayer player) {
+        packetEntityReplication = new PacketEntityReplication(player);
+
         packetChecks = new ImmutableClassToInstanceMap.Builder<PacketCheck>()
+                .put(CompensatedCameraEntity.class, player.cameraEntity)
                 .put(PacketOrderProcessor.class, player.packetOrderProcessor)
                 .put(Reach.class, new Reach(player))
-                .put(PacketEntityReplication.class, new PacketEntityReplication(player))
+                .put(PacketEntityReplication.class, packetEntityReplication)
                 .put(PacketChangeGameState.class, new PacketChangeGameState(player))
                 .put(CompensatedInventory.class, player.inventory)
                 .put(PacketPlayerAbilities.class, new PacketPlayerAbilities(player))
                 .put(PacketWorldBorder.class, new PacketWorldBorder(player))
-                .put(ActionManager.class, player.actionManager)
+                .put(AttackCooldownHandler.class, player.attackCooldown)
                 .put(TeamHandler.class, new TeamHandler(player))
                 .put(ClientBrand.class, new ClientBrand(player))
                 .put(NoFall.class, new NoFall(player))
@@ -117,6 +131,7 @@ public class CheckManager {
                 .put(BadPacketsV.class, new BadPacketsV(player))
                 .put(BadPacketsY.class, new BadPacketsY(player))
                 .put(BadPacketsZ.class, new BadPacketsZ(player))
+                .put(SelfInteract.class, new SelfInteract(player))
                 .put(MultiActionsA.class, new MultiActionsA(player))
                 .put(MultiActionsC.class, new MultiActionsC(player))
                 .put(MultiActionsD.class, new MultiActionsD(player))
@@ -264,6 +279,15 @@ public class CheckManager {
                 .putAll(noneModules)
                 .build();
 
+        packetChecksValues = new ArrayList<>(packetChecks.values());
+        positionChecksValues = new ArrayList<>(positionChecks.values());
+        rotationChecksValues = new ArrayList<>(rotationChecks.values());
+        vehicleChecksValues = new ArrayList<>(vehicleChecks.values());
+        prePredictionChecksValues = new ArrayList<>(prePredictionChecks.values());
+        blockBreakChecksValues = new ArrayList<>(blockBreakChecks.values());
+        blockPlaceChecksValues = new ArrayList<>(blockPlaceChecks.values());
+        postPredictionChecksValues = new ArrayList<>(postPredictionChecks.values());
+
         init();
     }
 
@@ -287,112 +311,6 @@ public class CheckManager {
         return (T) blockPlaceChecks.get(check);
     }
 
-    public void onPrePredictionReceivePacket(final PacketReceiveEvent packet) {
-        for (PacketCheck check : prePredictionChecks.values()) {
-            check.onPacketReceive(packet);
-        }
-    }
-
-    public void onPacketReceive(final PacketReceiveEvent packet) {
-        for (PacketCheck check : packetChecks.values()) {
-            check.onPacketReceive(packet);
-        }
-        for (PostPredictionCheck check : postPredictionChecks.values()) {
-            check.onPacketReceive(packet);
-        }
-        for (BlockPlaceCheck check : blockPlaceChecks.values()) {
-            check.onPacketReceive(packet);
-        }
-        for (BlockBreakCheck check : blockBreakChecks.values()) {
-            check.onPacketReceive(packet);
-        }
-    }
-
-    public void onPacketSend(final PacketSendEvent packet) {
-        for (PacketCheck check : prePredictionChecks.values()) {
-            check.onPacketSend(packet);
-        }
-        for (PacketCheck check : packetChecks.values()) {
-            check.onPacketSend(packet);
-        }
-        for (PostPredictionCheck check : postPredictionChecks.values()) {
-            check.onPacketSend(packet);
-        }
-        for (BlockPlaceCheck check : blockPlaceChecks.values()) {
-            check.onPacketSend(packet);
-        }
-        for (BlockBreakCheck check : blockBreakChecks.values()) {
-            check.onPacketSend(packet);
-        }
-    }
-
-    public void onPositionUpdate(final PositionUpdate position) {
-        for (PositionCheck check : positionChecks.values()) {
-            check.onPositionUpdate(position);
-        }
-    }
-
-    public void onRotationUpdate(final RotationUpdate rotation) {
-        for (RotationCheck check : rotationChecks.values()) {
-            check.process(rotation);
-        }
-        for (BlockPlaceCheck check : blockPlaceChecks.values()) {
-            check.process(rotation);
-        }
-    }
-
-    public void onVehiclePositionUpdate(final VehiclePositionUpdate update) {
-        for (VehicleCheck check : vehicleChecks.values()) {
-            check.process(update);
-        }
-    }
-
-    public void onPredictionFinish(final PredictionComplete complete) {
-        for (PostPredictionCheck check : postPredictionChecks.values()) {
-            check.onPredictionComplete(complete);
-        }
-        for (BlockPlaceCheck check : blockPlaceChecks.values()) {
-            check.onPredictionComplete(complete);
-        }
-        for (BlockBreakCheck check : blockBreakChecks.values()) {
-            check.onPredictionComplete(complete);
-        }
-    }
-
-    public void onBlockPlace(final BlockPlace place) {
-        for (BlockPlaceCheck check : blockPlaceChecks.values()) {
-            check.onBlockPlace(place);
-        }
-    }
-
-    public void onPostFlyingBlockPlace(final BlockPlace place) {
-        for (BlockPlaceCheck check : blockPlaceChecks.values()) {
-            check.onPostFlyingBlockPlace(place);
-        }
-    }
-
-    public void onBlockBreak(final BlockBreak blockBreak) {
-        for (BlockBreakCheck check : blockBreakChecks.values()) {
-            check.onBlockBreak(blockBreak);
-        }
-        for (BlockPlaceCheck check : blockPlaceChecks.values()) {
-            check.onBlockBreak(blockBreak);
-        }
-    }
-
-    public void onPostFlyingBlockBreak(final BlockBreak blockBreak) {
-        for (BlockBreakCheck check : blockBreakChecks.values()) {
-            check.onPostFlyingBlockBreak(blockBreak);
-        }
-        for (BlockPlaceCheck check : blockPlaceChecks.values()) {
-            check.onPostFlyingBlockBreak(blockBreak);
-        }
-    }
-
-    public ExplosionHandler getExplosionHandler() {
-        return getPostPredictionCheck(ExplosionHandler.class);
-    }
-
     @SuppressWarnings("unchecked")
     public <T extends PacketCheck> T getPacketCheck(Class<T> check) {
         return (T) packetChecks.get(check);
@@ -403,10 +321,115 @@ public class CheckManager {
         return (T) prePredictionChecks.get(check);
     }
 
-    public PacketEntityReplication getEntityReplication() {
-        if (packetEntityReplication == null)
-            packetEntityReplication = getPacketCheck(PacketEntityReplication.class);
-        return packetEntityReplication;
+    @SuppressWarnings("unchecked")
+    public <T extends PostPredictionCheck> T getPostPredictionCheck(Class<T> check) {
+        return (T) postPredictionChecks.get(check);
+    }
+
+    public void onPrePredictionReceivePacket(final PacketReceiveEvent packet) {
+        for (PacketCheck check : prePredictionChecksValues) {
+            check.onPacketReceive(packet);
+        }
+    }
+
+    public void onPacketReceive(final PacketReceiveEvent packet) {
+        for (PacketCheck check : packetChecksValues) {
+            check.onPacketReceive(packet);
+        }
+        for (PostPredictionCheck check : postPredictionChecksValues) {
+            check.onPacketReceive(packet);
+        }
+        for (BlockPlaceCheck check : blockPlaceChecksValues) {
+            check.onPacketReceive(packet);
+        }
+        for (BlockBreakCheck check : blockBreakChecksValues) {
+            check.onPacketReceive(packet);
+        }
+    }
+
+    public void onPacketSend(final PacketSendEvent packet) {
+        for (PacketCheck check : prePredictionChecksValues) {
+            check.onPacketSend(packet);
+        }
+        for (PacketCheck check : packetChecksValues) {
+            check.onPacketSend(packet);
+        }
+        for (PostPredictionCheck check : postPredictionChecksValues) {
+            check.onPacketSend(packet);
+        }
+        for (BlockPlaceCheck check : blockPlaceChecksValues) {
+            check.onPacketSend(packet);
+        }
+        for (BlockBreakCheck check : blockBreakChecksValues) {
+            check.onPacketSend(packet);
+        }
+    }
+
+    public void onPositionUpdate(final PositionUpdate position) {
+        for (PositionCheck check : positionChecksValues) {
+            check.onPositionUpdate(position);
+        }
+    }
+
+    public void onRotationUpdate(final RotationUpdate rotation) {
+        for (RotationCheck check : rotationChecksValues) {
+            check.process(rotation);
+        }
+        for (BlockPlaceCheck check : blockPlaceChecksValues) {
+            check.process(rotation);
+        }
+    }
+
+    public void onVehiclePositionUpdate(final VehiclePositionUpdate update) {
+        for (VehicleCheck check : vehicleChecksValues) {
+            check.process(update);
+        }
+    }
+
+    public void onPredictionFinish(final PredictionComplete complete) {
+        for (PostPredictionCheck check : postPredictionChecksValues) {
+            check.onPredictionComplete(complete);
+        }
+        for (BlockPlaceCheck check : blockPlaceChecksValues) {
+            check.onPredictionComplete(complete);
+        }
+        for (BlockBreakCheck check : blockBreakChecksValues) {
+            check.onPredictionComplete(complete);
+        }
+    }
+
+    public void onBlockPlace(final BlockPlace place) {
+        for (BlockPlaceCheck check : blockPlaceChecksValues) {
+            check.onBlockPlace(place);
+        }
+    }
+
+    public void onPostFlyingBlockPlace(final BlockPlace place) {
+        for (BlockPlaceCheck check : blockPlaceChecksValues) {
+            check.onPostFlyingBlockPlace(place);
+        }
+    }
+
+    public void onBlockBreak(final BlockBreak blockBreak) {
+        for (BlockBreakCheck check : blockBreakChecksValues) {
+            check.onBlockBreak(blockBreak);
+        }
+        for (BlockPlaceCheck check : blockPlaceChecksValues) {
+            check.onBlockBreak(blockBreak);
+        }
+    }
+
+    public void onPostFlyingBlockBreak(final BlockBreak blockBreak) {
+        for (BlockBreakCheck check : blockBreakChecksValues) {
+            check.onPostFlyingBlockBreak(blockBreak);
+        }
+        for (BlockPlaceCheck check : blockPlaceChecksValues) {
+            check.onPostFlyingBlockBreak(blockBreak);
+        }
+    }
+
+    public ExplosionHandler getExplosionHandler() {
+        return getPostPredictionCheck(ExplosionHandler.class);
     }
 
     public NoFall getNoFall() {
@@ -431,15 +454,6 @@ public class CheckManager {
 
     public DebugHandler getDebugHandler() {
         return getPostPredictionCheck(DebugHandler.class);
-    }
-
-    public OffsetHandler getOffsetHandler() {
-        return getPostPredictionCheck(OffsetHandler.class);
-    }
-
-    @SuppressWarnings("unchecked")
-    public <T extends PostPredictionCheck> T getPostPredictionCheck(Class<T> check) {
-        return (T) postPredictionChecks.get(check);
     }
 
     private void init() {
